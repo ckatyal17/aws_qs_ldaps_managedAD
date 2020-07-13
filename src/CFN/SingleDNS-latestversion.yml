@@ -197,7 +197,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/install-modules.ps1"
               }
               commandLine: "./install-modules.ps1"
@@ -218,7 +218,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/LCM-Config.ps1"
               }
               commandLine: "./LCM-Config.ps1"
@@ -239,7 +239,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/Djoin.ps1"
               }
               commandLine: "./Djoin.ps1 -CAServerNetBIOSName {{CAServerNetBIOSName}} -DomainDNSName {{DomainDNSName}} -DomainNetBIOSName {{DomainNetBIOSName}} -DomainDNSIpAddress {{DomainDNSIpAddress}} -CASecParam {{CAAdminSecParamName}}"
@@ -298,7 +298,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/ConfigCA.ps1"
               }
               commandLine: "./ConfigCA.ps1 -CAServerNetBIOSName {{CAServerNetBIOSName}} -DomainNetBIOSName {{DomainNetBIOSName}} -DomainDNSName {{DomainDNSName}} -CASecParam {{CAAdminSecParamName}}"  
@@ -336,7 +336,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/downloadPSscript.ps1"
               }
               commandLine: "./downloadPSscript.ps1"
@@ -357,7 +357,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/taskschd.ps1"
               }
               commandLine: "./taskschd.ps1 -CASecParam {{CAAdminSecParamName}} -DomainNetBIOSName {{DomainNetBIOSName}} -certificateTemplateName {{certificateTemplateName}}"
@@ -423,7 +423,7 @@ Resources:
               sourceType: "GitHub"
               sourceInfo: {
                 "owner" : "ckatyal17",
-                "repository" : "qs_ldaps",
+                "repository" : "aws_qs_ldaps_managedAD",
                 "path" : "src/scripts/publishTemplate.ps1"
               }
               commandLine: "./publishTemplate.ps1 -CASecParam {{CAAdminSecParamName}} -certificateTemplateName {{certificateTemplateName}}"
