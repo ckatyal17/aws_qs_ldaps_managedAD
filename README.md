@@ -1,0 +1,1 @@
+# aws_qs_ldaps_managedAD
