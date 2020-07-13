@@ -5,4 +5,4 @@ createTemplate.ps1 script is required to create a new certificate template and g
 [CmdletBinding()]
 param()
 
-Start-BitsTransfer -Source "https://raw.githubusercontent.com/ckatyal17/qs_ldaps/master/src/scripts/createTemplate.ps1" -Destination "C:\AWSLDAPsConfig\temp\createTemplate.ps1"
+Start-BitsTransfer -Source "https://raw.githubusercontent.com/ckatyal17/aws_qs_ldaps_managedAD/master/src/scripts/createTemplate.ps1" -Destination "C:\AWSLDAPsConfig\temp\createTemplate.ps1"
