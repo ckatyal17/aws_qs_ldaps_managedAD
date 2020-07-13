@@ -1,0 +1,654 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Launches a Windows 2019 EC2 instance, joins it to AWS Managed Microsoft AD domain, configure CA and enable LDAP over SSL for AWS Managed Microsoft AD domain.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - VPCID
+          - PublicSubnetID
+      - Label:
+          default: Amazon EC2 Configuration for CA
+        Parameters:
+          - CAServerNetBIOSName
+          - CAServerInstanceType
+          - KeyPairName
+          - WINAMI
+      - Label:
+          default: AWS managed Microsoft AD Domain Details
+        Parameters:
+          - CAAdminUser
+          - CAAdminPassword
+          - DomainDNSName
+          - DomainNetBIOSName
+          - DomainDNSIpAddress
+      - Label:
+          default: AWS LDAPs Configuration
+        Parameters:
+          - certificateTemplateName
+    ParameterLabels:
+      CAServerInstanceType:
+        default: CA Server Instance Type
+      CAServerNetBIOSName:
+        default: CA Server NetBIOS Name
+      CAAdminPassword:
+        default: Certification Authority Admin Password
+      CAAdminUser:
+        default: Certification Authority Admin User Name
+      certificateTemplateName:
+        default: Certificate template to be created in AD
+      DomainDNSName:
+        default: Domain DNS Name
+      DomainNetBIOSName:
+        default: Domain NetBIOS Name
+      DomainDNSIpAddress:
+        default: Domain DNS server IP.
+      KeyPairName:
+        default: Key Pair Name
+      WINAMI:
+        default: Pull the lastest AMI ID from SSM parameter.
+      PublicSubnetID:
+        default: Public Subnet ID
+      VPCID:
+        default: VPC ID
+Parameters:
+  CAServerInstanceType:
+    AllowedValues:
+      - t2.large
+      - t3.large
+      - m4.large
+      - m4.xlarge
+      - m5.large
+      - m5.xlarge
+    Default: t3.large
+    Description: Amazon EC2 instance type for the Certification Authority Server.
+    Type: String
+  CAServerNetBIOSName:
+    AllowedPattern: '[a-zA-Z0-9\-]+'
+    Default: QS-CAServer1
+    Description: Machine name for Certification Authority server. NetBIOS name can only be of 15 characters max.
+    MaxLength: '15'
+    MinLength: '1'
+    Type: String
+  certificateTemplateName:
+    Default: LDAPsQS
+    Description: Template name for custom certificate template
+    Type: String
+  CAAdminPassword:
+    Description: Please enter the password of the user part of AWS Delegated Enterprise Certification Authority Administrators security group or AWS Delegated Administrators security group of your managed Microsoft AD.
+    NoEcho: 'true'
+    Type: String
+  CAAdminUser:
+    Default: Admin
+    Description: User name for the account that is part of AWS Delegated Enterprise Certification Authority Administrators security group or AWS Delegated Administrators security group of your managed Microsoft AD.
+    Type: String
+  DomainDNSName:
+    Description: Fully qualified domain name (FQDN) of your AWS managed Microsoft AD for e.g. contoso.com. Pending add allowed pattern here for domain.
+    Type: String
+  DomainNetBIOSName:
+    AllowedPattern: '[a-zA-Z0-9\-]+'
+    Description: NetBIOS name of the domain.
+    Type: String
+  DomainDNSIpAddress:
+    Type: String
+    Description: Enter DNS server IP address of your managed Microsoft AD.
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select the key pair to decrypt the local administrator password of the instance.
+  PublicSubnetID:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet ID where CA instance will be launched. 
+  VPCID:
+    Description: Enter your VPC ID (e.g., vpc-c6e6cba0)
+    Type: AWS::EC2::VPC::Id
+  WINAMI:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base'
+Rules:
+  SubnetsInVPC:
+    Assertions:
+      - Assert: !EachMemberIn
+          - !ValueOfAll
+            - AWS::EC2::Subnet::Id
+            - VpcId
+          - !RefAll 'AWS::EC2::VPC::Id'
+        AssertDescription: All subnets must in the VPC
+Conditions:
+  GovCloud: !Equals 
+    - !Ref 'AWS::Region'
+    - us-gov-east-1
+ 
+Resources:
+  CWLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub '/aws/LDAPscfnlogs/${AWS::StackName}'
+      RetentionInDays: 30
+  LdapsSSMDoc:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Content:
+        schemaVersion: "0.3"
+        description: "Deploy Certification Authoring using SSM Automation Document" 
+        assumeRole: "{{AutomationAssumeRole}}"
+        parameters: 
+          CAServerNetBIOSName:
+            default: "QS-CAServer1"
+            description: "NetBIOS name of the CA Server"
+            type: "String"
+          CAAdminSecParamName:
+            description: "AWS Secrets Parameter Name for the account part of CA administrators."
+            type: "String"
+          certificateTemplateName:
+            default: "LDAPsQS"
+            description: "Template name for custom certificate template"
+            type: "String"  
+          DomainNetBIOSName:
+            type: "String"
+            description: "netbios name of the domain"
+          DomainDNSName: 
+            description: "Fully qualified domain name (FQDN) of the forest root domain e.g. example.com"
+            type: "String"
+          DomainDNSIpAddress:
+            type: "String"
+            description: Enter IP address of your DNS server.
+          StackName:
+            default: ""
+            description: "Stack Name Input for cfn resource signal"
+            type: "String"
+          AutomationAssumeRole:
+            default: ""
+            description: "The ARN of the IAM role that allows Automation to perform the required actions on your behalf."
+            type: "String"
+        mainSteps:
+        # Fetch the Instance ID of the EC2 instance node that will be configured as CA in the cfn template.
+        - name: "caInstanceId"
+          action: aws:executeAwsApi
+          onFailure: "step:signalfailure"
+          nextStep: "InstallDscModulesOnCA"
+          inputs:
+            Service: ec2
+            Api: DescribeInstances
+            Filters:  
+            - Name: "tag:Name"
+              Values: [ "{{CAServerNetBIOSName}}" ]
+            - Name: "instance-state-name"
+              Values: [ "running" ]
+          outputs:
+          - Name: InstanceIds
+            Selector: "$.Reservations[0].Instances[0].InstanceId"
+            Type: "String"
+
+        # Install Powershell DSC Modules and other required components.
+        - name: "InstallDscModulesOnCA"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "caLCMConfig"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/install-modules.ps1"
+              }
+              commandLine: "./install-modules.ps1"
+
+        # Configures Local Configuration Manager on instance
+        - name: "caLCMConfig"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "createDjoinMof"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/LCM-Config.ps1"
+              }
+              commandLine: "./LCM-Config.ps1"
+
+        # Generates MOF file for domain join on the instance to be processed by LCM
+        - name: "createDjoinMof"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "Djoin"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/Djoin.ps1"
+              }
+              commandLine: "./Djoin.ps1 -CAServerNetBIOSName {{CAServerNetBIOSName}} -DomainDNSName {{DomainDNSName}} -DomainNetBIOSName {{DomainNetBIOSName}} -DomainDNSIpAddress {{DomainDNSIpAddress}} -CASecParam {{CAAdminSecParamName}}"
+
+        # Starts DSC Configuration to rename and join the machine to domain.
+        - name: "Djoin"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "StopInstance1"
+          inputs:
+            DocumentName: AWS-RunPowerShellScript
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              commands: 
+                - |                   
+                   Start-DscConfiguration 'C:\AWSLDAPsConfig\Djoin' -Wait -Verbose -Force
+
+        # Stop the instance after domain join:
+        - name: "StopInstance1"
+          action: aws:changeInstanceState
+          onFailure: "step:signalfailure"
+          nextStep: "StartInstance1"
+          inputs:
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            DesiredState: "stopped"
+              
+
+        # Start the instance:
+        - name: "StartInstance1"
+          action: aws:changeInstanceState
+          onFailure: "step:signalfailure"
+          nextStep: "ConfigureCAMOF"
+          inputs:
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            DesiredState: "running"
+
+        # Generates MOF file for CA installation.
+        - name: "ConfigureCAMOF"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "configCA"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/ConfigCA.ps1"
+              }
+              commandLine: "./ConfigCA.ps1 -CAServerNetBIOSName {{CAServerNetBIOSName}} -DomainNetBIOSName {{DomainNetBIOSName}} -DomainDNSName {{DomainDNSName}} -CASecParam {{CAAdminSecParamName}}"  
+                   
+        # Starts DSC Configuration to install ADCS role and configure Enterprise CA as per MOF file.
+        - name: "configCA"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "downloadCATempl"
+          inputs:
+            DocumentName: AWS-RunPowerShellScript
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              commands: 
+                - |                   
+                   Start-DscConfiguration 'C:\AWSLDAPsConfig\ConfigCA' -Wait -Verbose -Force
+
+        # Downloads the PS script from S3 bucket to create a new certificate template for LDAPs.
+        - name: "downloadCATempl"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "taskschdMOF"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/downloadPSscript.ps1"
+              }
+              commandLine: "./downloadPSscript.ps1"
+
+        # Generates MOF file for creating a new scheduled task to run the downloaded script.
+        - name: "taskschdMOF"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "configureTask"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/taskschd.ps1"
+              }
+              commandLine: "./taskschd.ps1 -CASecParam {{CAAdminSecParamName}} -DomainNetBIOSName {{DomainNetBIOSName}} -certificateTemplateName {{certificateTemplateName}}"
+
+        # Starts DSC Configuration to configure scheduled task as per MOF.
+        - name: "configureTask"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "StopInstance2"
+          inputs:
+            DocumentName: AWS-RunPowerShellScript
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              commands: 
+                - |                   
+                   Start-DscConfiguration 'C:\AWSLDAPsConfig\createTemplateTask' -Wait -Verbose -Force
+
+        # Stop the instance:
+        - name: "StopInstance2"
+          action: aws:changeInstanceState
+          onFailure: "step:signalfailure"
+          nextStep: "StartInstance2"
+          inputs:
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            DesiredState: "stopped"
+              
+
+        # Start the instance:
+        - name: "StartInstance2"
+          action: aws:changeInstanceState
+          onFailure: "step:signalfailure"
+          nextStep: "sleep"
+          inputs:
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            DesiredState: "running"
+  
+        # Sleep off 3 Minutes which gives time to scheuled task to complet after reboot:
+        - name: "sleep"
+          action: aws:sleep
+          nextStep: "publishTemplMof"
+          inputs: 
+            Duration: "PT3M"
+
+        # Generate MOF to publish certificate template on CA.
+        - name: "publishTemplMof"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          nextStep: "publishCAtempl"
+          inputs:
+            DocumentName: "AWS-RunRemoteScript"
+            InstanceIds:
+            - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              sourceType: "GitHub"
+              sourceInfo: {
+                "owner" : "ckatyal17",
+                "repository" : "qs_ldaps",
+                "path" : "src/scripts/publishTemplate.ps1"
+              }
+              commandLine: "./publishTemplate.ps1 -CASecParam {{CAAdminSecParamName}} -certificateTemplateName {{certificateTemplateName}}"
+
+        # Starts DSC Configuration to publish CA template as per MOF file.
+        - name: "publishCAtempl"
+          action: aws:runCommand
+          onFailure: "step:signalfailure"
+          inputs:
+            DocumentName: AWS-RunPowerShellScript
+            InstanceIds: 
+              - "{{caInstanceId.InstanceIds}}"
+            CloudWatchOutputConfig:
+              CloudWatchOutputEnabled: "true"
+              CloudWatchLogGroupName: !Ref 'CWLogs'
+            Parameters:
+              commands: 
+                - |                   
+                   Start-DscConfiguration 'C:\AWSLDAPsConfig\publishCATemplate' -Wait -Verbose -Force
+
+        # Check if CFN Needs to be signaled or if Work flow should just end
+        - name: CFNSignalEnd
+          action: aws:branch
+          inputs:
+            Choices:
+            - NextStep: signalsuccess
+              Not: 
+                Variable: "{{StackName}}"
+                StringEquals: ""
+            - NextStep: sleepend
+              Variable: "{{StackName}}"
+              StringEquals: ""
+
+        # If all steps complete successfully signals CFN of Success
+        - name: "signalsuccess"
+          action: aws:executeAwsApi
+          isEnd: True
+          inputs:
+            Service: cloudformation
+            Api: SignalResource
+            LogicalResourceId: "CertificationAuthority"
+            StackName: "{{StackName}}"
+            Status: SUCCESS
+            UniqueId: "{{caInstanceId.InstanceIds}}"
+
+        # If CFN Signl Not Needed this sleep ends work flow
+        - name: "sleepend"
+          action: aws:sleep
+          isEnd: True
+          inputs:
+            Duration: PT1S
+
+        # If any steps fails signals CFN of Failure
+        - name: "signalfailure"
+          action: aws:executeAwsApi
+          inputs:
+            Service: cloudformation
+            Api: SignalResource
+            LogicalResourceId: "CertificationAuthority"
+            StackName: "{{StackName}}"
+            Status: FAILURE
+            UniqueId: "{{caInstanceId.InstanceIds}}"
+            
+  AWSLDAPsCARole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:SignalResource
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ssm:*
+                Resource: '*'
+          PolicyName: AD-SSM-Automation
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Effect: Allow
+        Version: '2012-10-17'
+  AWSSSMPassRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AD-SSM-PassRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWSLDAPsCARole}'
+      Roles:
+        - !Ref 'AWSLDAPsCARole'
+  CAInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:StartAutomationExecution
+                Resource: '*'
+          PolicyName: AD-SSM-Secrets
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${AWSLDAPsCARole}'
+          PolicyName: AD-SSM-PassRole
+      Path: /
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Effect: Allow
+        Version: '2012-10-17'
+  CAInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref 'CAInstanceRole'
+      Path: /
+  CAUserSecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'CAUserSecrets-${AWS::StackName}'
+      Description: Secrets created for CA admin domain user account
+      SecretString: !Sub '{ "username" : "${CAAdminUser}", "password" : "${CAAdminPassword}" }'
+  CertificationAuthority:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT50M
+        Count: 1
+    Properties:
+      ImageId: !Ref 'WINAMI'
+      IamInstanceProfile: !Ref 'CAInstanceProfile'
+      InstanceType: !Ref 'CAServerInstanceType'
+      SubnetId: !Ref 'PublicSubnetID'
+      Tags:
+        - Key: Name
+          Value: !Ref 'CAServerNetBIOSName'
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: '80'
+            VolumeType: gp2
+      SecurityGroupIds:
+        - !Ref 'CertificationAuthoritySG'
+      KeyName: !Ref 'KeyPairName'
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - "<powershell>\n"
+            - 'Start-SSMAutomationExecution -DocumentName '
+            - !Sub '"${LdapsSSMDoc}"'
+            - ' -Parameter @{'
+            - '"DomainDNSIpAddress"='
+            - !Sub '"${DomainDNSIpAddress}"'
+            - ';"CAServerNetBIOSName"='
+            - !Sub '"${CAServerNetBIOSName}"'
+            - ';"DomainDNSName"='
+            - !Sub '"${DomainDNSName}"'
+            - ';"certificateTemplateName"='
+            - !Sub '"${certificateTemplateName}"'
+            - ';"CAAdminSecParamName"='
+            - !Sub '"${CAUserSecrets}"'
+            - ';"StackName"='
+            - !Sub '"${AWS::StackName}"'
+            - ';"AutomationAssumeRole"='
+            - !Sub '"arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWSLDAPsCARole}"'
+            - ';"DomainNetBIOSName"='
+            - !Sub '"${DomainNetBIOSName}"'
+            - '}'
+            - "\n"
+            - "</powershell>\n"
+  CertificationAuthoritySG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group attached to Certification Authority instance
+      VpcId:
+        Ref: VPCID
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: -1
+          CidrIp: !Join
+            - '/'
+            - - !Ref 'DomainDNSIpAddress'
+              - '32'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: "0.0.0.0/0"
+Outputs:
+  CertificationAuthoritySG:
+    Value: !Ref 'CertificationAuthoritySG'
+    Description: Certification Authority Instance Security Group ID
+  CASecretsArn:
+    Value: !Ref 'CAUserSecrets'
+    Description: Alternate AD User Secrets ARN
