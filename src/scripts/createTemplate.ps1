@@ -53,7 +53,7 @@ $oa = @{
         'flags' = [System.Int32]'1'
         'msPKI-Cert-Template-OID' = $OID_New.TemplateOID
 }
-New-ADObject -Path $TemplateOIDPath -OtherAttributes $oa -Name OID_New.TemplateName -Type 'msPKI-Enterprise-Oid'
+New-ADObject -Path $TemplateOIDPath -OtherAttributes $oa -Name $OID_New.TemplateName -Type 'msPKI-Enterprise-Oid'
 
 # Add required attributes to template
 $NewTempl = $ADSI.Create("pKICertificateTemplate", $certtemplname)
