@@ -19,4 +19,4 @@ Configure LDAP over SSL for AWS managed Microsoft AD directory using single tier
 - <a href="https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-using-console-create-stack-template.html">Create a new stack</a> by uploading the CloudFormation (AWS-QS-LDAPS-managedAD-templ.yml). 
 - Specify the required <a href="https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-using-console-create-stack-parameters.html">stack parameters</a> and launch the stack.
 
-Please note: It takes about 40 minutes for this cloudformation template to deploy the required resources. Also, there is no charge for using AWS CloudFormation however, you will be charged for the resources created by AWS CloudFormation template. 
+Please note: It takes about 40 minutes for this cloudformation template to deploy the required resources. Also, there is no charge for using AWS CloudFormation, however, you will be charged for the resources created by AWS CloudFormation template. 
