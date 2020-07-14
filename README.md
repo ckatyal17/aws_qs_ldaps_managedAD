@@ -1,5 +1,5 @@
 # AWS Cloudformation (CFN) Template to configure LDAPS with AWS Managed Microsoft AD
-Configure LDAP over SSL for AWS managed Microsoft AD directory using single tier Microsoft Enterprise Certification Authority.
+This CFN templates configures LDAP over SSL for AWS managed Microsoft AD directory using single tier Microsoft Enterprise Certification Authority.
 
 ## AWS Resources created by template
 - 1 Windows 2019 EC2 instance.
