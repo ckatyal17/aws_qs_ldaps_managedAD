@@ -76,7 +76,6 @@ $NewTempl.put("msPKI-Certificate-Name-Flag","134217728")
 $NewTempl.put("msPKI-Minimal-Key-Size","2048")
 $NewTempl.put("msPKI-Template-Schema-Version","2")
 $NewTempl.put("msPKI-Template-Minor-Revision","0")
-#$NewTempl.put("msPKI-Cert-Template-OID","1.3.6.1.4.1.311.21.8.14865712.6640054.4476569.14547573.3852325.170.5117346.10961021")
 $NewTempl.put("msPKI-Cert-Template-OID", $OID_New.TemplateOID)
 $NewTempl.put("msPKI-Certificate-Application-Policy","1.3.6.1.5.5.7.3.1")
 $NewTempl.SetInfo()
@@ -89,7 +88,6 @@ $NewTempl.pKIKeyUsage = $WATempl.pKIKeyUsage
 $NewTempl.pKIExpirationPeriod = $WATempl.pKIExpirationPeriod
 $NewTempl.pKIOverlapPeriod = $WATempl.pKIOverlapPeriod
 $NewTempl.SetInfo()
-
 
 # Change Permission on the Template
 if ($NewTempl -ne $null) {                     
@@ -106,7 +104,7 @@ if ($NewTempl -ne $null) {
 	$NewTempl.commitchanges()                        
 }
 }catch{
-	$_ | Out-File "C:\AWSLDAPsConfig\logs\scripts\createTemplate.txt" -Append
+	$_ | Out-File "C:\AWSLDAPsConfig\logs\scripts\createTemplate_fullErr.txt" -Append
 	$_.ScriptStackTrace | Out-File "C:\AWSLDAPsConfig\logs\scripts\createTemplate_ScriptStackTrace.txt" -Append
 	$_.Exception | Out-File "C:\AWSLDAPsConfig\logs\scripts\createTemplate_Exception.txt" -Append
 	$_.ErrorDetails | Out-File "C:\AWSLDAPsConfig\logs\scripts\scripts_createTemplate_ErrDetails.txt" -Append
